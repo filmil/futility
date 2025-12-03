@@ -1,0 +1,15 @@
+{
+    "$schema": "https://raw.githubusercontent.com/theoremlp/rules_multitool/main/lockfile.schema.json",
+    "gotopt2": {
+        "binaries": [
+            {
+                "kind": "archive",
+                "url": "https://github.com/filmil/gotopt2/releases/download/v2.1.4/serial_upload-linux-amd64.zip",
+                "sha256": "",
+                "os": "linux",
+                "file": "serial_upload/serial_upload",
+                "cpu": "x86_64"
+            }
+        ]
+    }
+}
