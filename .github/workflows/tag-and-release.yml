@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: ["386", "amd64"]
+        arch: ["386", "amd64", "arm64"]
         os: ["linux"]
     steps:
       - name: Setup bazel
