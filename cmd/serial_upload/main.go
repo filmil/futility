@@ -21,6 +21,16 @@ var (
 	prompt      = flag.String("prompt", "", "prompt line to wait for")
 )
 
+type Config struct {
+	FileName   string
+	DeviceName string
+	BaudRate   int
+	StartBits  int
+	StopBits   int
+	Parity     string
+	Prompt     string
+}
+
 func main() {
 	flag.Parse()
 
@@ -34,20 +44,30 @@ func main() {
 		log.Fatal("-prompt is required")
 	}
 
-	if err := upload(); err != nil {
+	cfg := Config{
+		FileName:   *fileName,
+		DeviceName: *deviceName,
+		BaudRate:   *baudRate,
+		StartBits:  *startBits,
+		StopBits:   *stopBits,
+		Parity:     *parity,
+		Prompt:     *prompt,
+	}
+
+	if err := upload(cfg); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func upload() error {
-	port, err := seriallib.Open(*deviceName)
+func upload(cfg Config) error {
+	port, err := seriallib.Open(cfg.DeviceName)
 	if err != nil {
 		return fmt.Errorf("failed to open serial port: %w", err)
 	}
 	defer port.Close()
 
 	p := seriallib.ParityNone
-	switch *parity {
+	switch cfg.Parity {
 	case "O":
 		p = seriallib.ParityOdd
 	case "E":
@@ -55,22 +75,22 @@ func upload() error {
 	}
 
 	if err := port.SetMode(&seriallib.Mode{
-		BaudRate: *baudRate,
-		DataBits: *startBits,
-		StopBits: *stopBits,
+		BaudRate: cfg.BaudRate,
+		DataBits: cfg.StartBits,
+		StopBits: cfg.StopBits,
 		Parity:   p,
 	}); err != nil {
 		return fmt.Errorf("failed to set serial port mode: %w", err)
 	}
 
 	scanner := bufio.NewScanner(port)
-	fmt.Printf("waiting for prompt %q\n", *prompt)
+	fmt.Printf("waiting for prompt %q\n", cfg.Prompt)
 	for scanner.Scan() {
 		line := scanner.Text()
 		fmt.Printf("read line: %q\n", line)
-		if line == *prompt {
+		if line == cfg.Prompt {
 			fmt.Printf("prompt received, sending file\n")
-			file, err := os.Open(*fileName)
+			file, err := os.Open(cfg.FileName)
 			if err != nil {
 				return fmt.Errorf("failed to open file: %w", err)
 			}
