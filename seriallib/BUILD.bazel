@@ -1,0 +1,8 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "seriallib",
+    srcs = ["seriallib.go"],
+    importpath = "github.com/filmil/futility/seriallib",
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,8 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "serial_upload",
+    srcs = ["main.go"],
+    importpath = "github.com/filmil/futility/cmd/serial_upload",
+    visibility = ["//visibility:public"],
+)
