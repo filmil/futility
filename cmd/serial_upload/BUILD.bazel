@@ -1,8 +1,22 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
 go_library(
-    name = "serial_upload",
+    name = "serial_upload_lib",
     srcs = ["main.go"],
     importpath = "github.com/filmil/futility/cmd/serial_upload",
+    visibility = ["//visibility:private"],
+    deps = ["//seriallib"],
+)
+
+go_binary(
+    name = "serial_upload",
+    embed = [":serial_upload_lib"],
     visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "serial_upload_test",
+    srcs = ["main_test.go"],
+    embed = [":serial_upload_lib"],
+    deps = ["@com_github_creack_pty//:pty"],
 )

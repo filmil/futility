@@ -1,5 +1,5 @@
 module github.com/filmil/futility
 
-go 1.24.1
+go 1.25.0
 
-require github.com/creack/pty v1.1.24 // indirect
+require github.com/creack/pty v1.1.24
