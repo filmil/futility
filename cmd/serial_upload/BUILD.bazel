@@ -1,6 +1,6 @@
 load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
-load("//build:my_package_name.bzl", "name_part_from_command_line")
 load("@rules_pkg//pkg:zip.bzl", "pkg_zip")
+load("//build:my_package_name.bzl", "name_part_from_command_line")
 
 go_library(
     name = "serial_upload_lib",
@@ -18,13 +18,12 @@ go_binary(
 
 go_test(
     name = "serial_upload_test",
+    size = "small",
     srcs = ["main_test.go"],
     embed = [":serial_upload_lib"],
-    size = "small",
     deps = [
         "@com_github_creack_pty//:pty",
         "@org_golang_x_sys//unix",
-        "@org_golang_x_term//:term",
     ],
 )
 
