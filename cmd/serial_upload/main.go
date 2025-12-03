@@ -19,6 +19,7 @@ var (
 	stopBits    = flag.Int("stopbits", 1, "stop bits")
 	parity      = flag.String("parity", "N", "parity (N, O, E)")
 	prompt      = flag.String("prompt", "", "prompt line to wait for")
+	linger      = flag.Bool("linger", false, "linger after upload and echo serial output to stdout")
 )
 
 type Config struct {
@@ -29,6 +30,8 @@ type Config struct {
 	StopBits   int
 	Parity     string
 	Prompt     string
+	Linger     bool
+	Output     io.Writer
 }
 
 func main() {
@@ -52,6 +55,8 @@ func main() {
 		StopBits:   *stopBits,
 		Parity:     *parity,
 		Prompt:     *prompt,
+		Linger:     *linger,
+		Output:     os.Stdout,
 	}
 
 	if err := upload(cfg); err != nil {
@@ -100,6 +105,13 @@ func upload(cfg Config) error {
 				return fmt.Errorf("failed to write file to serial port: %w", err)
 			}
 			fmt.Printf("file sent\n")
+			
+			if cfg.Linger {
+				fmt.Println("lingering...")
+				if _, err := io.Copy(cfg.Output, port); err != nil {
+					return fmt.Errorf("error lingering: %w", err)
+				}
+			}
 			return nil
 		}
 	}
