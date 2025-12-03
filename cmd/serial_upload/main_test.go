@@ -3,12 +3,12 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/creack/pty"
+	"golang.org/x/sys/unix"
 )
 
 func TestUpload(t *testing.T) {
@@ -38,7 +38,18 @@ func TestUpload(t *testing.T) {
 			defer ptmx.Close()
 			defer pts.Close()
 
-			tmpfile, err := ioutil.TempFile("", "upload-test-")
+			// Disable echoing on the master pty.
+			termios, err := unix.IoctlGetTermios(int(ptmx.Fd()), unix.TCGETS)
+			if err != nil {
+				t.Fatalf("failed to get terminal attributes: %v", err)
+			}
+			termios.Lflag &^= unix.ECHO
+			termios.Oflag &^= unix.ONLCR
+			if err := unix.IoctlSetTermios(int(ptmx.Fd()), unix.TCSETS, termios); err != nil {
+				t.Fatalf("failed to set terminal attributes: %v", err)
+			}
+
+			tmpfile, err := os.CreateTemp("", "upload-test-")
 			if err != nil {
 				t.Fatalf("failed to create temp file: %v", err)
 			}
@@ -49,13 +60,20 @@ func TestUpload(t *testing.T) {
 			if err := tmpfile.Close(); err != nil {
 				t.Fatalf("failed to close temp file: %v", err)
 			}
-			*fileName = tmpfile.Name()
-			*deviceName = pts.Name()
-			*prompt = tt.prompt
+			
+			cfg := Config{
+				FileName:   tmpfile.Name(),
+				DeviceName: pts.Name(),
+				Prompt:     tt.prompt,
+				BaudRate:   115200,
+				StartBits:  8,
+				StopBits:   1,
+				Parity:     "N",
+			}
 
 			errCh := make(chan error, 1)
 			go func() {
-				errCh <- upload()
+				errCh <- upload(cfg)
 			}()
 
 			// Give the program a moment to start up and wait for the prompt.
