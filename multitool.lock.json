@@ -4,8 +4,8 @@
         "binaries": [
             {
                 "kind": "archive",
-                "url": "https://github.com/filmil/futility/releases/download/v0.0.2/serial_upload-v0.0.2-linux-amd64.zip",
-                "sha256": "",
+                "url": "https://github.com/filmil/futility/releases/download/v0.1.0/serial_upload-linux-amd64.zip",
+                "sha256": "78558ab307278ebd7161a93a4ed05798f477c7fe102b1dd32ba721c83d5861f6",
                 "os": "linux",
                 "file": "serial_upload/serial_upload",
                 "cpu": "x86_64"
