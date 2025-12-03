@@ -1,21 +1,9 @@
-# When run:
-# * runs tests to ensure that released version works.
-# * tags a new release based on main top of tree.
-# * builds a source bundle and uploads it into the release
-# * builds binaries and uploads them into the release
-#
 # The workflow can be run manually, otherwise it runs once a week.
 name: Tag and Release
 
 env:
-  # The env here is tailored to releasing *one* binary.
-  # ZIP_PACKAGE is the package where the zip target is. For //test in this
-  # example, the label of the bazel target that zips up a built and released
-  # binary is `//test:zip`.
-  ZIP_PACKAGE: "//test"
-  # The name of the binary to package. This workflow packages a single binary
-  # into a zip file.
-  BINARY_NAME: "bazel-bin/test/test"
+  ZIP_PACKAGE: "//cmd/serial_upload"
+  BINARY_NAME: "bazel-bin/cmd/serial_upload/serial_upload"
 
 on:
   schedule:
