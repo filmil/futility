@@ -12,14 +12,14 @@ import (
 )
 
 var (
-	fileName    = flag.String("file", "", "file name to upload")
-	deviceName  = flag.String("device", "", "serial port device name")
-	baudRate    = flag.Int("baud", 115200, "baud rate")
-	startBits   = flag.Int("startbits", 8, "start bits")
-	stopBits    = flag.Int("stopbits", 1, "stop bits")
-	parity      = flag.String("parity", "N", "parity (N, O, E)")
-	prompt      = flag.String("prompt", "", "prompt line to wait for")
-	linger      = flag.Bool("linger", false, "linger after upload and echo serial output to stdout")
+	fileName   = flag.String("file", "", "file name to upload")
+	deviceName = flag.String("device", "", "serial port device name")
+	baudRate   = flag.Int("baud", 115200, "baud rate")
+	startBits  = flag.Int("startbits", 8, "start bits")
+	stopBits   = flag.Int("stopbits", 1, "stop bits")
+	parity     = flag.String("parity", "N", "parity (N, O, E)")
+	prompt     = flag.String("prompt", "", "prompt line to wait for")
+	linger     = flag.Bool("linger", false, "linger after upload and echo serial output to stdout")
 )
 
 type Config struct {
@@ -32,6 +32,7 @@ type Config struct {
 	Prompt     string
 	Linger     bool
 	Output     io.Writer
+	Copy       bool
 }
 
 func main() {
@@ -89,10 +90,14 @@ func upload(cfg Config) error {
 	}
 
 	scanner := bufio.NewScanner(port)
-	fmt.Printf("waiting for prompt %q\n", cfg.Prompt)
+	prompt := true
 	for scanner.Scan() {
+		if prompt {
+			fmt.Printf("waiting for prompt %q\n", cfg.Prompt)
+			prompt = false
+		}
 		line := scanner.Text()
-		fmt.Printf("read line: %q\n", line)
+		fmt.Printf("> %q\n", line)
 		if line == cfg.Prompt {
 			fmt.Printf("prompt received, sending file\n")
 			file, err := os.Open(cfg.FileName)
@@ -105,14 +110,19 @@ func upload(cfg Config) error {
 				return fmt.Errorf("failed to write file to serial port: %w", err)
 			}
 			fmt.Printf("file sent\n")
-			
+
 			if cfg.Linger {
 				fmt.Println("lingering...")
-				if _, err := io.Copy(cfg.Output, port); err != nil {
-					return fmt.Errorf("error lingering: %w", err)
+				if cfg.Copy {
+					if _, err := io.Copy(cfg.Output, port); err != nil {
+						return fmt.Errorf("error lingering: %w", err)
+					}
 				}
+				prompt = true
+			} else {
+				fmt.Println("done")
+				return nil
 			}
-			return nil
 		}
 	}
 

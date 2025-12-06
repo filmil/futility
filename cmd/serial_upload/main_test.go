@@ -61,7 +61,7 @@ func TestUpload(t *testing.T) {
 			if err := tmpfile.Close(); err != nil {
 				t.Fatalf("failed to close temp file: %v", err)
 			}
-			
+
 			cfg := Config{
 				FileName:   tmpfile.Name(),
 				DeviceName: pts.Name(),
@@ -128,7 +128,7 @@ func TestUploadLinger(t *testing.T) {
 
 	fileContent := "some content"
 	prompt := "PROMPT"
-	
+
 	tmpfile, err := os.CreateTemp("", "upload-linger-test-")
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
@@ -152,6 +152,7 @@ func TestUploadLinger(t *testing.T) {
 		Parity:     "N",
 		Linger:     true,
 		Output:     &outBuf,
+		Copy:       true,
 	}
 
 	errCh := make(chan error, 1)
