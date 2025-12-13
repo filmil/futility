@@ -1,4 +1,16 @@
 
+## Licensing
+
+In each file that is missing the annotation, add the SPDX license annotation.
+Use appropriate source code comments to add:
+
+```
+SPDX-License-Identifier: Apache-2.0
+```
+
+Do not modify `*.md` files, `*.txt`, `*.json` files with license annotations.
+
+
 ## Handling repository
 
 ### Running tests
@@ -51,4 +63,19 @@ bazel run @rules_go//go -- mod tidy -v
 bazel mod tidy
 bazel run //:gazelle
 ```
+
+
+## Machine code editing
+
+### Maintain disclosures
+
+In each directory where automated editing has been used, add a `README.md` file
+if one does not exist, or append to README.md if it exists, but only if the
+annotation does not already exist:
+
+```
+This module was partially written using an automated coding assistant, with
+human supervision.
+```
+
 
