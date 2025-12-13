@@ -9,6 +9,8 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/filmil/futility/seriallib"
 )
@@ -37,6 +39,13 @@ type Config struct {
 	Copy       bool
 }
 
+// port is an interface that represents a serial port.
+// It is used to abstract the real serial port implementation for testing.
+type port interface {
+	io.ReadWriteCloser
+	SetMode(mode *seriallib.Mode) error
+}
+
 func main() {
 	flag.Parse()
 
@@ -62,18 +71,32 @@ func main() {
 		Output:     os.Stdout,
 	}
 
-	if err := upload(cfg); err != nil {
+	port, err := seriallib.Open(cfg.DeviceName)
+	if err != nil {
+		log.Fatalf("failed to open serial port: %v", err)
+	}
+	defer port.Close()
+
+	// Set up channel for signal notifications.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+	// Goroutine to handle signals.
+	go func() {
+		sig := <-sigCh
+		fmt.Printf("\nCaught signal (%v), closing serial port.\n", sig)
+		// Closing the port will cause any blocked reads to fail, allowing graceful shutdown.
+		port.Close()
+	}()
+
+	if err := upload(cfg, port); err != nil {
+		// When the port is closed by the signal handler, upload will return an error.
+		// We log it and exit, which is reasonable behavior.
 		log.Fatal(err)
 	}
 }
 
-func upload(cfg Config) error {
-	port, err := seriallib.Open(cfg.DeviceName)
-	if err != nil {
-		return fmt.Errorf("failed to open serial port: %w", err)
-	}
-	defer port.Close()
-
+func upload(cfg Config, port port) error {
 	p := seriallib.ParityNone
 	switch cfg.Parity {
 	case "O":
