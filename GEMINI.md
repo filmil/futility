@@ -9,9 +9,16 @@ SPDX-License-Identifier: Apache-2.0
 ```
 
 Do not modify `*.md` files, `*.txt`, `*.json` files with license annotations.
+Do not modify the `LICENSE` file with license annotations.
+Do not modify `*.lock` files.
 
 
 ## Handling repository
+
+### Safety
+
+* Do not delete existing code to make tests or compilation pass.
+* Always run tests after making changes, ensure tests pass.
 
 ### Running tests
 
