@@ -3,7 +3,8 @@ package seriallib
 import (
 	"fmt"
 	"io"
-	"os"
+
+	"go.bug.st/serial"
 )
 
 // Port is an interface for a serial port.
@@ -14,10 +15,10 @@ type Port interface {
 
 // Mode represents the serial port settings.
 type Mode struct {
-	BaudRate  int
-	DataBits  int
-	StopBits  int
-	Parity    Parity
+	BaudRate int
+	DataBits int
+	StopBits int
+	Parity   Parity
 }
 
 // Parity is the parity setting for a serial port.
@@ -31,32 +32,63 @@ const (
 	// ParityEven is even parity.
 	ParityEven Parity = 'E'
 )
+
 func Open(deviceName string) (Port, error) {
-	f, err := os.OpenFile(deviceName, os.O_RDWR, 0)
+	p, err := serial.Open(deviceName, &serial.Mode{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open device %q: %w", deviceName, err)
 	}
-	return &port{f: f}, nil
+	return &port{p: p}, nil
 }
 
 type port struct {
-	f *os.File
+	p serial.Port
 }
 
 func (p *port) Read(b []byte) (int, error) {
-	return p.f.Read(b)
+	return p.p.Read(b)
 }
 
 func (p *port) Write(b []byte) (int, error) {
-	return p.f.Write(b)
+	return p.p.Write(b)
 }
 
 func (p *port) Close() error {
-	return p.f.Close()
+	return p.p.Close()
 }
 
 func (p *port) SetMode(mode *Mode) error {
-	// This is a dummy implementation.
-	// In a real scenario, this would configure the serial port.
+	var parity serial.Parity
+	switch mode.Parity {
+	case ParityNone:
+		parity = serial.NoParity
+	case ParityOdd:
+		parity = serial.OddParity
+	case ParityEven:
+		parity = serial.EvenParity
+	default:
+		return fmt.Errorf("unknown parity: %c", mode.Parity)
+	}
+
+	var stopBits serial.StopBits
+	switch mode.StopBits {
+	case 1:
+		stopBits = serial.OneStopBit
+	case 2:
+		stopBits = serial.TwoStopBits
+	default:
+		// go-serial also supports 1.5, but our Mode doesn't represent it.
+		return fmt.Errorf("unsupported stop bits: %d", mode.StopBits)
+	}
+
+	err := p.p.SetMode(&serial.Mode{
+		BaudRate: mode.BaudRate,
+		DataBits: mode.DataBits,
+		Parity:   parity,
+		StopBits: stopBits,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to set mode: %w", err)
+	}
 	return nil
 }
