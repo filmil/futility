@@ -7,3 +7,8 @@
 Upon execution, the program opens the configured serial port and sets its parameters (baud rate, start/stop bits, parity). It then listens for an incoming string on the serial port that exactly matches the provided prompt line. Once the prompt is received, the program transmits the entire content of the specified file through the serial connection.
 
 For detailed requirements and development tasks, please refer to the [specification document](spec.md).
+
+## Warning
+
+This program has been vibe-coded.
+
