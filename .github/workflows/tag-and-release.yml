@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # The workflow can be run manually, otherwise it runs once a week.
 name: Tag and Release
 
@@ -120,4 +122,3 @@ jobs:
       tag_name: ${{ needs.tag.outputs.tag_name }}
     secrets:
       BCR_PUBLISH_TOKEN: ${{ secrets.BCR_PUBLISH_TOKEN }}
-

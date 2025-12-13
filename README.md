@@ -12,3 +12,6 @@ This repository contains various utilities and tools. Below is a summary of the 
 The `serial_upload` utility is a Go program that facilitates uploading text files over a serial connection. It is designed to wait for a specific prompt on the serial port before sending the file's contents, making it suitable for interacting with devices that require a handshake or specific command sequence.
 
 For more in-depth information, including detailed specifications and usage instructions, please refer to the [serial_upload README](cmd/serial_upload/README.md).
+
+This module was partially written using an automated coding assistant, with
+human supervision.

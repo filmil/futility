@@ -12,3 +12,5 @@ For detailed requirements and development tasks, please refer to the [specificat
 
 This program has been vibe-coded.
 
+This module was partially written using an automated coding assistant, with
+human supervision.

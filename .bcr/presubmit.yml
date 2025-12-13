@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 bcr_test_module:
   module_path: "integration"
   matrix:

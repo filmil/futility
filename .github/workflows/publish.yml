@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Based on the instructions at https://github.com/bazel-contrib/publish-to-bcr
 name: "Publish to my Bazel registry"
 
@@ -37,4 +39,3 @@ jobs:
       attestations: write
     secrets:
       publish_token: ${{ secrets.BCR_PUBLISH_TOKEN }}
-
