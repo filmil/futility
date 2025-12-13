@@ -11,8 +11,20 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"github.com/filmil/futility/seriallib"
 	"golang.org/x/sys/unix"
 )
+
+// mockPort is a mock for the port interface for testing purposes.
+type mockPort struct {
+	*os.File
+}
+
+// SetMode is a mock implementation of the SetMode method.
+func (m *mockPort) SetMode(mode *seriallib.Mode) error {
+	// For the test, we don't need to do anything here.
+	return nil
+}
 
 func TestUpload(t *testing.T) {
 	tests := []struct {
@@ -77,7 +89,8 @@ func TestUpload(t *testing.T) {
 
 			errCh := make(chan error, 1)
 			go func() {
-				errCh <- upload(cfg)
+				mport := &mockPort{pts}
+				errCh <- upload(cfg, mport)
 			}()
 
 			// Give the program a moment to start up and wait for the prompt.
@@ -159,7 +172,8 @@ func TestUploadLinger(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- upload(cfg)
+		mport := &mockPort{pts}
+		errCh <- upload(cfg, mport)
 	}()
 
 	// Wait for startup
