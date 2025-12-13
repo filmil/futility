@@ -5,4 +5,5 @@ go_library(
     srcs = ["seriallib.go"],
     importpath = "github.com/filmil/futility/seriallib",
     visibility = ["//visibility:public"],
+    deps = ["@st_bug_go_serial//:serial"],
 )
