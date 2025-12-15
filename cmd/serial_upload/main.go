@@ -10,7 +10,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"syscall"
 
 	"github.com/filmil/futility/seriallib"
 )
@@ -79,7 +78,7 @@ func main() {
 
 	// Set up channel for signal notifications.
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sigCh, os.Interrupt)
 
 	// Goroutine to handle signals.
 	go func() {
