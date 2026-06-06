@@ -209,14 +209,25 @@ func upload(cfg Config, port port) error {
 
 	cr := &chanReader{ch: byteCh, errCh: errCh}
 	scanner := bufio.NewScanner(cr)
+
+	lineCh := make(chan string, 1024)
+	go func() {
+		for scanner.Scan() {
+			lineCh <- scanner.Text()
+		}
+		close(lineCh)
+	}()
+
 	prompt := true
-	for scanner.Scan() {
+	for line := range lineCh {
 		if prompt {
 			fmt.Printf("waiting for prompt %q\n", cfg.Prompt)
 			prompt = false
 		}
-		line := scanner.Text()
 		fmt.Printf("> %q\n", line)
+		if cfg.Copy {
+			fmt.Fprintln(cfg.Output, line)
+		}
 		if line == cfg.Prompt {
 			fmt.Printf("prompt received, sending file\n")
 			file, err := os.Open(cfg.FileName)
@@ -236,6 +247,14 @@ func upload(cfg Config, port port) error {
 					case p := <-pauseCh:
 						paused = p
 						continue
+					case line, ok := <-lineCh:
+						if ok {
+							fmt.Printf("> %q\n", line)
+							if cfg.Copy {
+								fmt.Fprintln(cfg.Output, line)
+							}
+						}
+						continue
 					default:
 					}
 					break
@@ -248,6 +267,13 @@ func upload(cfg Config, port port) error {
 					case err := <-errCh:
 						sendErr = err
 						break SendLoop
+					case line, ok := <-lineCh:
+						if ok {
+							fmt.Printf("> %q\n", line)
+							if cfg.Copy {
+								fmt.Fprintln(cfg.Output, line)
+							}
+						}
 					}
 					continue
 				}
@@ -272,6 +298,14 @@ func upload(cfg Config, port port) error {
 							case p := <-pauseCh:
 								paused = p
 								continue
+							case line, ok := <-lineCh:
+								if ok {
+									fmt.Printf("> %q\n", line)
+									if cfg.Copy {
+										fmt.Fprintln(cfg.Output, line)
+									}
+								}
+								continue
 							default:
 							}
 							break
@@ -284,6 +318,13 @@ func upload(cfg Config, port port) error {
 							case err := <-errCh:
 								sendErr = err
 								break SendLoop
+							case line, ok := <-lineCh:
+								if ok {
+									fmt.Printf("> %q\n", line)
+									if cfg.Copy {
+										fmt.Fprintln(cfg.Output, line)
+									}
+								}
 							}
 							continue
 						}
@@ -326,11 +367,6 @@ func upload(cfg Config, port port) error {
 
 			if cfg.Linger {
 				fmt.Println("lingering...")
-				if cfg.Copy {
-					if _, err := io.Copy(cfg.Output, cr); err != nil {
-						return fmt.Errorf("error lingering: %w", err)
-					}
-				}
 				prompt = true
 			} else {
 				fmt.Println("done")
