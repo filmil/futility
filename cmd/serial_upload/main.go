@@ -24,6 +24,7 @@ var (
 	prompt     = flag.String("prompt", "", "prompt line to wait for")
 	linger     = flag.Bool("linger", false, "linger after upload and echo serial output to stdout")
 	lineBuffer = flag.Bool("line-buffer", false, "wait for an XON character to arrive after a single line has been emitted before sending the next line")
+	logFlag    = flag.Bool("log", false, "log to stderr all the lines sent")
 )
 
 type Config struct {
@@ -36,6 +37,7 @@ type Config struct {
 	Prompt     string
 	Linger     bool
 	LineBuffer bool
+	Log        bool
 	Output     io.Writer
 	Copy       bool
 }
@@ -70,6 +72,7 @@ func main() {
 		Prompt:     *prompt,
 		Linger:     *linger,
 		LineBuffer: *lineBuffer,
+		Log:        *logFlag,
 		Output:     os.Stdout,
 	}
 
@@ -288,6 +291,11 @@ func upload(cfg Config, port port) error {
 							sendErr = fmt.Errorf("failed to write to serial port: %w", err)
 							break SendLoop
 						}
+
+						if cfg.Log {
+							fmt.Fprintf(os.Stderr, "sent: %q\n", string(toWrite[:chunkSize]))
+						}
+
 						toWrite = toWrite[chunkSize:]
 					}
 
