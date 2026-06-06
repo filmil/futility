@@ -176,11 +176,17 @@ func upload(cfg Config, port port) error {
 				for i := 0; i < n; i++ {
 					b := buf[i]
 					if b == 0x13 { // XOFF
+						if cfg.Log {
+							fmt.Fprintln(os.Stderr, "received: XOFF")
+						}
 						select {
 						case pauseCh <- true:
 						default:
 						}
 					} else if b == 0x11 { // XON
+						if cfg.Log {
+							fmt.Fprintln(os.Stderr, "received: XON")
+						}
 						select {
 						case pauseCh <- false:
 						default:
