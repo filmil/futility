@@ -218,13 +218,16 @@ func upload(cfg Config, port port) error {
 		close(lineCh)
 	}()
 
+	recvLineCount := 0
+	sentLineCount := 0
 	prompt := true
 	for line := range lineCh {
 		if prompt {
 			fmt.Printf("waiting for prompt %q\n", cfg.Prompt)
 			prompt = false
 		}
-		fmt.Printf("> %q\n", line)
+		recvLineCount++
+		fmt.Printf("> [%d] %q\n", recvLineCount, line)
 		if cfg.Copy {
 			fmt.Fprintln(cfg.Output, line)
 		}
@@ -249,7 +252,8 @@ func upload(cfg Config, port port) error {
 						continue
 					case line, ok := <-lineCh:
 						if ok {
-							fmt.Printf("> %q\n", line)
+							recvLineCount++
+							fmt.Printf("> [%d] %q\n", recvLineCount, line)
 							if cfg.Copy {
 								fmt.Fprintln(cfg.Output, line)
 							}
@@ -269,7 +273,8 @@ func upload(cfg Config, port port) error {
 						break SendLoop
 					case line, ok := <-lineCh:
 						if ok {
-							fmt.Printf("> %q\n", line)
+							recvLineCount++
+							fmt.Printf("> [%d] %q\n", recvLineCount, line)
 							if cfg.Copy {
 								fmt.Fprintln(cfg.Output, line)
 							}
@@ -300,7 +305,8 @@ func upload(cfg Config, port port) error {
 								continue
 							case line, ok := <-lineCh:
 								if ok {
-									fmt.Printf("> %q\n", line)
+									recvLineCount++
+									fmt.Printf("> [%d] %q\n", recvLineCount, line)
 									if cfg.Copy {
 										fmt.Fprintln(cfg.Output, line)
 									}
@@ -320,7 +326,8 @@ func upload(cfg Config, port port) error {
 								break SendLoop
 							case line, ok := <-lineCh:
 								if ok {
-									fmt.Printf("> %q\n", line)
+									recvLineCount++
+									fmt.Printf("> [%d] %q\n", recvLineCount, line)
 									if cfg.Copy {
 										fmt.Fprintln(cfg.Output, line)
 									}
@@ -340,7 +347,8 @@ func upload(cfg Config, port port) error {
 						}
 
 						if cfg.Log {
-							fmt.Fprintf(os.Stderr, "sent: %q\n", string(toWrite[:chunkSize]))
+							sentLineCount++
+							fmt.Fprintf(os.Stderr, "sent [%d]: %q\n", sentLineCount, string(toWrite[:chunkSize]))
 						}
 
 						toWrite = toWrite[chunkSize:]
