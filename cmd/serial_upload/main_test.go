@@ -226,3 +226,246 @@ func TestUploadLinger(t *testing.T) {
 		t.Error("upload did not return after pty close")
 	}
 }
+
+type customMockPort struct {
+	readFunc  func(p []byte) (n int, err error)
+	writeFunc func(p []byte) (n int, err error)
+	closeFunc func() error
+}
+
+func (m *customMockPort) Read(p []byte) (n int, err error) {
+	if m.readFunc != nil {
+		return m.readFunc(p)
+	}
+	return 0, io.EOF
+}
+
+func (m *customMockPort) Write(p []byte) (n int, err error) {
+	if m.writeFunc != nil {
+		return m.writeFunc(p)
+	}
+	return len(p), nil
+}
+
+func (m *customMockPort) Close() error {
+	if m.closeFunc != nil {
+		return m.closeFunc()
+	}
+	return nil
+}
+
+func (m *customMockPort) SetMode(mode *seriallib.Mode) error {
+	return nil
+}
+
+func TestUploadLineBuffer(t *testing.T) {
+	fileContent := "line1\nline2\nline3"
+	prompt := "PROMPT\n"
+
+	tmpfile, err := os.CreateTemp("", "upload-linebuffer-test-")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpfile.Name())
+	if _, err := tmpfile.Write([]byte(fileContent)); err != nil {
+		t.Fatalf("failed to write to temp file: %v", err)
+	}
+	if err := tmpfile.Close(); err != nil {
+		t.Fatalf("failed to close temp file: %v", err)
+	}
+
+	cfg := Config{
+		FileName:   tmpfile.Name(),
+		DeviceName: "mock",
+		Prompt:     "PROMPT",
+		LineBuffer: true,
+		Output:     io.Discard,
+	}
+
+	readCh := make(chan byte, 100)
+	writeCh := make(chan []byte, 100)
+
+	for _, b := range []byte(prompt) {
+		readCh <- b
+	}
+
+	mport := &customMockPort{
+		readFunc: func(p []byte) (int, error) {
+			if len(p) == 0 {
+				return 0, nil
+			}
+			b, ok := <-readCh
+			if !ok {
+				return 0, io.EOF
+			}
+			p[0] = b
+			return 1, nil
+		},
+		writeFunc: func(p []byte) (int, error) {
+			b := make([]byte, len(p))
+			copy(b, p)
+			writeCh <- b
+			return len(p), nil
+		},
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- upload(cfg, mport)
+	}()
+
+	// Wait for line1
+	select {
+	case b := <-writeCh:
+		if string(b) != "line1\n" {
+			t.Fatalf("expected line1\\n, got %q", string(b))
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timeout waiting for line1")
+	}
+
+	// It should pause now.
+	select {
+	case <-writeCh:
+		t.Fatalf("wrote data while paused!")
+	case <-time.After(100 * time.Millisecond):
+		// good, it paused
+	}
+
+	// Send XON
+	readCh <- 0x11
+
+	// Wait for line2
+	select {
+	case b := <-writeCh:
+		if string(b) != "line2\n" {
+			t.Fatalf("expected line2\\n, got %q", string(b))
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timeout waiting for line2")
+	}
+
+	// Send XON
+	readCh <- 0x11
+
+	// Wait for line3
+	select {
+	case b := <-writeCh:
+		if string(b) != "line3" {
+			t.Fatalf("expected line3, got %q", string(b))
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timeout waiting for line3")
+	}
+
+	close(readCh)
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("upload failed: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timeout waiting for upload to finish")
+	}
+}
+
+func TestUploadXONXOFF(t *testing.T) {
+	fileContent := "aaaaaaaaaabbbbbbbbbb"
+	prompt := "PROMPT\n"
+
+	tmpfile, err := os.CreateTemp("", "upload-xonxoff-test-")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpfile.Name())
+	if _, err := tmpfile.Write([]byte(fileContent)); err != nil {
+		t.Fatalf("failed to write to temp file: %v", err)
+	}
+	if err := tmpfile.Close(); err != nil {
+		t.Fatalf("failed to close temp file: %v", err)
+	}
+
+	cfg := Config{
+		FileName:   tmpfile.Name(),
+		DeviceName: "mock",
+		Prompt:     "PROMPT",
+		Output:     io.Discard,
+	}
+
+	readCh := make(chan byte, 100)
+	writeCh := make(chan []byte, 100)
+
+	for _, b := range []byte(prompt) {
+		readCh <- b
+	}
+	// immediately queue XOFF so it receives it quickly
+	readCh <- 0x13
+
+	mport := &customMockPort{
+		readFunc: func(p []byte) (int, error) {
+			if len(p) == 0 {
+				return 0, nil
+			}
+			b, ok := <-readCh
+			if !ok {
+				return 0, io.EOF
+			}
+			p[0] = b
+			return 1, nil
+		},
+		writeFunc: func(p []byte) (int, error) {
+			b := make([]byte, len(p))
+			copy(b, p)
+			writeCh <- b
+			return len(p), nil
+		},
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- upload(cfg, mport)
+	}()
+
+	// Wait for a write. It shouldn't write because it received XOFF immediately.
+	totalWritten := 0
+	paused := false
+	for {
+		select {
+		case b := <-writeCh:
+			totalWritten += len(b)
+		case <-time.After(200 * time.Millisecond):
+			paused = true
+		}
+		if paused {
+			break
+		}
+	}
+
+	if totalWritten == len(fileContent) {
+		t.Fatalf("wrote all data without pausing!")
+	}
+
+	// Send XON
+	readCh <- 0x11
+
+	// Wait for the rest of the data
+	for {
+		select {
+		case b := <-writeCh:
+			totalWritten += len(b)
+		case <-time.After(500 * time.Millisecond):
+			break
+		}
+		if totalWritten >= len(fileContent) {
+			break
+		}
+	}
+
+	if totalWritten != len(fileContent) {
+		t.Fatalf("expected to write %d bytes, wrote %d", len(fileContent), totalWritten)
+	}
+
+	close(readCh)
+	<-errCh
+}
