@@ -23,6 +23,7 @@ var (
 	parity     = flag.String("parity", "N", "parity (N, O, E)")
 	prompt     = flag.String("prompt", "", "prompt line to wait for")
 	linger     = flag.Bool("linger", false, "linger after upload and echo serial output to stdout")
+	lineBuffer = flag.Bool("line-buffer", false, "wait for an XON character to arrive after a single line has been emitted before sending the next line")
 )
 
 type Config struct {
@@ -34,6 +35,7 @@ type Config struct {
 	Parity     string
 	Prompt     string
 	Linger     bool
+	LineBuffer bool
 	Output     io.Writer
 	Copy       bool
 }
@@ -67,6 +69,7 @@ func main() {
 		Parity:     *parity,
 		Prompt:     *prompt,
 		Linger:     *linger,
+		LineBuffer: *lineBuffer,
 		Output:     os.Stdout,
 	}
 
@@ -95,6 +98,51 @@ func main() {
 	}
 }
 
+type chanReader struct {
+	ch    <-chan byte
+	errCh <-chan error
+	err   error
+}
+
+func (r *chanReader) Read(p []byte) (int, error) {
+	if r.err != nil {
+		return 0, r.err
+	}
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	b, ok := <-r.ch
+	if !ok {
+		select {
+		case err := <-r.errCh:
+			r.err = err
+			if err == io.EOF {
+				return 0, io.EOF
+			}
+			return 0, err
+		default:
+			return 0, io.EOF
+		}
+	}
+	p[0] = b
+	n := 1
+
+	for i := 1; i < len(p); i++ {
+		select {
+		case b, ok := <-r.ch:
+			if !ok {
+				return n, nil
+			}
+			p[i] = b
+			n++
+		default:
+			return n, nil
+		}
+	}
+	return n, nil
+}
+
 func upload(cfg Config, port port) error {
 	p := seriallib.ParityNone
 	switch cfg.Parity {
@@ -113,7 +161,45 @@ func upload(cfg Config, port port) error {
 		return fmt.Errorf("failed to set serial port mode: %w", err)
 	}
 
-	scanner := bufio.NewScanner(port)
+	byteCh := make(chan byte, 1024*1024)
+	errCh := make(chan error, 1)
+	pauseCh := make(chan bool, 10)
+
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			n, err := port.Read(buf)
+			if n > 0 {
+				for i := 0; i < n; i++ {
+					b := buf[i]
+					if b == 0x13 { // XOFF
+						select {
+						case pauseCh <- true:
+						default:
+						}
+					} else if b == 0x11 { // XON
+						select {
+						case pauseCh <- false:
+						default:
+						}
+					} else {
+						select {
+						case byteCh <- b:
+						default:
+						}
+					}
+				}
+			}
+			if err != nil {
+				errCh <- err
+				close(byteCh)
+				return
+			}
+		}
+	}()
+
+	cr := &chanReader{ch: byteCh, errCh: errCh}
+	scanner := bufio.NewScanner(cr)
 	prompt := true
 	for scanner.Scan() {
 		if prompt {
@@ -130,15 +216,104 @@ func upload(cfg Config, port port) error {
 			}
 			defer file.Close()
 
-			if _, err := io.Copy(port, file); err != nil {
-				return fmt.Errorf("failed to write file to serial port: %w", err)
+			buf := make([]byte, 64)
+			paused := false
+			var sendErr error
+			br := bufio.NewReader(file)
+		SendLoop:
+			for {
+				for {
+					select {
+					case p := <-pauseCh:
+						paused = p
+						continue
+					default:
+					}
+					break
+				}
+
+				if paused {
+					select {
+					case p := <-pauseCh:
+						paused = p
+					case err := <-errCh:
+						sendErr = err
+						break SendLoop
+					}
+					continue
+				}
+
+				var toWrite []byte
+				var readErr error
+
+				if cfg.LineBuffer {
+					toWrite, readErr = br.ReadBytes('\n')
+				} else {
+					n, err := br.Read(buf)
+					if n > 0 {
+						toWrite = buf[:n]
+					}
+					readErr = err
+				}
+
+				if len(toWrite) > 0 {
+					for len(toWrite) > 0 {
+						for {
+							select {
+							case p := <-pauseCh:
+								paused = p
+								continue
+							default:
+							}
+							break
+						}
+
+						if paused {
+							select {
+							case p := <-pauseCh:
+								paused = p
+							case err := <-errCh:
+								sendErr = err
+								break SendLoop
+							}
+							continue
+						}
+
+						chunkSize := 64
+						if len(toWrite) < chunkSize {
+							chunkSize = len(toWrite)
+						}
+
+						if _, err := port.Write(toWrite[:chunkSize]); err != nil {
+							sendErr = fmt.Errorf("failed to write to serial port: %w", err)
+							break SendLoop
+						}
+						toWrite = toWrite[chunkSize:]
+					}
+
+					if cfg.LineBuffer {
+						paused = true
+					}
+				}
+
+				if readErr == io.EOF {
+					break
+				}
+				if readErr != nil {
+					sendErr = fmt.Errorf("failed to read file: %w", readErr)
+					break
+				}
+			}
+
+			if sendErr != nil {
+				return sendErr
 			}
 			fmt.Printf("file sent\n")
 
 			if cfg.Linger {
 				fmt.Println("lingering...")
 				if cfg.Copy {
-					if _, err := io.Copy(cfg.Output, port); err != nil {
+					if _, err := io.Copy(cfg.Output, cr); err != nil {
 						return fmt.Errorf("error lingering: %w", err)
 					}
 				}
