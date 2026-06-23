@@ -4,9 +4,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"testing"
 	"time"
 
@@ -468,4 +470,48 @@ func TestUploadXONXOFF(t *testing.T) {
 
 	close(readCh)
 	<-errCh
+}
+
+// TestSignalHandlerClosesPort verifies that SIGINT causes the port to be closed.
+// The old one-shot goroutine would exit after the first signal, swallowing any
+// subsequent signals. signal.NotifyContext keeps intercepting until stop() is called.
+func TestSignalHandlerClosesPort(t *testing.T) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	portClosed := make(chan struct{})
+	mport := &customMockPort{
+		readFunc: func(p []byte) (int, error) {
+			<-portClosed
+			return 0, io.EOF
+		},
+		closeFunc: func() error {
+			select {
+			case <-portClosed:
+			default:
+				close(portClosed)
+			}
+			return nil
+		},
+	}
+
+	go func() {
+		<-ctx.Done()
+		mport.Close()
+	}()
+
+	proc, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := proc.Signal(os.Interrupt); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-portClosed:
+		// port closed in response to SIGINT — correct behaviour
+	case <-time.After(time.Second):
+		t.Error("port not closed after SIGINT")
+	}
 }

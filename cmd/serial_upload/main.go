@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -82,15 +83,12 @@ func main() {
 	}
 	defer port.Close()
 
-	// Set up channel for signal notifications.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
 
-	// Goroutine to handle signals.
 	go func() {
-		sig := <-sigCh
-		fmt.Printf("\nCaught signal (%v), closing serial port.\n", sig)
-		// Closing the port will cause any blocked reads to fail, allowing graceful shutdown.
+		<-ctx.Done()
+		fmt.Printf("\nReceived interrupt, closing serial port.\n")
 		port.Close()
 	}()
 
@@ -179,23 +177,14 @@ func upload(cfg Config, port port) error {
 						if cfg.Log {
 							fmt.Fprintln(os.Stderr, "received: XOFF")
 						}
-						select {
-						case pauseCh <- true:
-						default:
-						}
+						pauseCh <- true
 					} else if b == 0x11 { // XON
 						if cfg.Log {
 							fmt.Fprintln(os.Stderr, "received: XON")
 						}
-						select {
-						case pauseCh <- false:
-						default:
-						}
+						pauseCh <- false
 					} else {
-						select {
-						case byteCh <- b:
-						default:
-						}
+						byteCh <- b
 					}
 				}
 			}
