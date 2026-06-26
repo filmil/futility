@@ -372,6 +372,71 @@ func TestUploadLineBuffer(t *testing.T) {
 	}
 }
 
+func TestUploadNoPrompt(t *testing.T) {
+	fileContent := "hello world"
+
+	tmpfile, err := os.CreateTemp("", "upload-noprompt-test-")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpfile.Name())
+	if _, err := tmpfile.Write([]byte(fileContent)); err != nil {
+		t.Fatalf("failed to write to temp file: %v", err)
+	}
+	if err := tmpfile.Close(); err != nil {
+		t.Fatalf("failed to close temp file: %v", err)
+	}
+
+	cfg := Config{
+		FileName:   tmpfile.Name(),
+		DeviceName: "mock",
+		// Prompt intentionally left empty: upload must start immediately.
+		Output: io.Discard,
+	}
+
+	writeCh := make(chan []byte, 100)
+	mport := &customMockPort{
+		// Never produce any input: there is nothing to wait for.
+		readFunc: func(p []byte) (int, error) {
+			select {}
+		},
+		writeFunc: func(p []byte) (int, error) {
+			b := make([]byte, len(p))
+			copy(b, p)
+			writeCh <- b
+			return len(p), nil
+		},
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- upload(cfg, mport)
+	}()
+
+	var got []byte
+	for len(got) < len(fileContent) {
+		select {
+		case b := <-writeCh:
+			got = append(got, b...)
+		case <-time.After(time.Second):
+			t.Fatalf("timeout waiting for upload; got %q so far", got)
+		}
+	}
+
+	if string(got) != fileContent {
+		t.Errorf("got %q, want %q", got, fileContent)
+	}
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("upload function returned an error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Error("upload function did not return after sending file")
+	}
+}
+
 func TestUploadXONXOFF(t *testing.T) {
 	fileContent := "aaaaaaaaaabbbbbbbbbb"
 	prompt := "PROMPT\n"

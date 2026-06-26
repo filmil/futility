@@ -22,7 +22,7 @@ var (
 	startBits  = flag.Int("startbits", 8, "start bits")
 	stopBits   = flag.Int("stopbits", 1, "stop bits")
 	parity     = flag.String("parity", "N", "parity (N, O, E)")
-	prompt     = flag.String("prompt", "", "prompt line to wait for")
+	prompt     = flag.String("prompt", "", "prompt line to wait for before uploading; if empty, upload immediately")
 	linger     = flag.Bool("linger", false, "linger after upload and echo serial output to stdout")
 	lineBuffer = flag.Bool("line-buffer", false, "wait for an XON character to arrive after a single line has been emitted before sending the next line")
 	logFlag    = flag.Bool("log", false, "log to stderr all the lines sent")
@@ -58,9 +58,6 @@ func main() {
 	}
 	if *deviceName == "" {
 		log.Fatal("-device is required")
-	}
-	if *prompt == "" {
-		log.Fatal("-prompt is required")
 	}
 
 	cfg := Config{
@@ -209,159 +206,182 @@ func upload(cfg Config, port port) error {
 
 	recvLineCount := 0
 	sentLineCount := 0
+
+	// recvLine prints, and optionally copies, a line received from the port.
+	recvLine := func(line string) {
+		recvLineCount++
+		fmt.Printf("> [%d] %q\n", recvLineCount, line)
+		if cfg.Copy {
+			fmt.Fprintln(cfg.Output, line)
+		}
+	}
+
+	// sendFile uploads the configured file to the serial port, honoring
+	// XON/XOFF flow control and the optional line-buffering mode.
+	sendFile := func() error {
+		file, err := os.Open(cfg.FileName)
+		if err != nil {
+			return fmt.Errorf("failed to open file: %w", err)
+		}
+		defer file.Close()
+
+		buf := make([]byte, 64)
+		paused := false
+		var sendErr error
+		br := bufio.NewReader(file)
+	SendLoop:
+		for {
+			for {
+				select {
+				case p := <-pauseCh:
+					paused = p
+					continue
+				case line, ok := <-lineCh:
+					if ok {
+						recvLine(line)
+					}
+					continue
+				default:
+				}
+				break
+			}
+
+			if paused {
+				select {
+				case p := <-pauseCh:
+					paused = p
+				case err := <-errCh:
+					sendErr = err
+					break SendLoop
+				case line, ok := <-lineCh:
+					if ok {
+						recvLine(line)
+					}
+				}
+				continue
+			}
+
+			var toWrite []byte
+			var readErr error
+
+			if cfg.LineBuffer {
+				toWrite, readErr = br.ReadBytes('\n')
+			} else {
+				n, err := br.Read(buf)
+				if n > 0 {
+					toWrite = buf[:n]
+				}
+				readErr = err
+			}
+
+			if len(toWrite) > 0 {
+				for len(toWrite) > 0 {
+					for {
+						select {
+						case p := <-pauseCh:
+							paused = p
+							continue
+						case line, ok := <-lineCh:
+							if ok {
+								recvLine(line)
+							}
+							continue
+						default:
+						}
+						break
+					}
+
+					if paused {
+						select {
+						case p := <-pauseCh:
+							paused = p
+						case err := <-errCh:
+							sendErr = err
+							break SendLoop
+						case line, ok := <-lineCh:
+							if ok {
+								recvLine(line)
+							}
+						}
+						continue
+					}
+
+					chunkSize := 64
+					if len(toWrite) < chunkSize {
+						chunkSize = len(toWrite)
+					}
+
+					if _, err := port.Write(toWrite[:chunkSize]); err != nil {
+						sendErr = fmt.Errorf("failed to write to serial port: %w", err)
+						break SendLoop
+					}
+
+					if cfg.Log {
+						sentLineCount++
+						fmt.Fprintf(os.Stderr, "sent [%d]: %q\n", sentLineCount, string(toWrite[:chunkSize]))
+					}
+
+					toWrite = toWrite[chunkSize:]
+				}
+
+				if cfg.LineBuffer {
+					paused = true
+				}
+			}
+
+			if readErr == io.EOF {
+				break
+			}
+			if readErr != nil {
+				sendErr = fmt.Errorf("failed to read file: %w", readErr)
+				break
+			}
+		}
+
+		if sendErr != nil {
+			return sendErr
+		}
+		fmt.Printf("file sent\n")
+		return nil
+	}
+
+	// linger echoes any further lines received from the port until it closes.
+	linger := func() error {
+		fmt.Println("lingering...")
+		for line := range lineCh {
+			recvLine(line)
+		}
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("error reading from serial port: %w", err)
+		}
+		return nil
+	}
+
+	// With no prompt configured, upload immediately without waiting.
+	if cfg.Prompt == "" {
+		fmt.Printf("sending file\n")
+		if err := sendFile(); err != nil {
+			return err
+		}
+		if cfg.Linger {
+			return linger()
+		}
+		fmt.Println("done")
+		return nil
+	}
+
 	prompt := true
 	for line := range lineCh {
 		if prompt {
 			fmt.Printf("waiting for prompt %q\n", cfg.Prompt)
 			prompt = false
 		}
-		recvLineCount++
-		fmt.Printf("> [%d] %q\n", recvLineCount, line)
-		if cfg.Copy {
-			fmt.Fprintln(cfg.Output, line)
-		}
+		recvLine(line)
 		if line == cfg.Prompt {
 			fmt.Printf("prompt received, sending file\n")
-			file, err := os.Open(cfg.FileName)
-			if err != nil {
-				return fmt.Errorf("failed to open file: %w", err)
+			if err := sendFile(); err != nil {
+				return err
 			}
-			defer file.Close()
-
-			buf := make([]byte, 64)
-			paused := false
-			var sendErr error
-			br := bufio.NewReader(file)
-		SendLoop:
-			for {
-				for {
-					select {
-					case p := <-pauseCh:
-						paused = p
-						continue
-					case line, ok := <-lineCh:
-						if ok {
-							recvLineCount++
-							fmt.Printf("> [%d] %q\n", recvLineCount, line)
-							if cfg.Copy {
-								fmt.Fprintln(cfg.Output, line)
-							}
-						}
-						continue
-					default:
-					}
-					break
-				}
-
-				if paused {
-					select {
-					case p := <-pauseCh:
-						paused = p
-					case err := <-errCh:
-						sendErr = err
-						break SendLoop
-					case line, ok := <-lineCh:
-						if ok {
-							recvLineCount++
-							fmt.Printf("> [%d] %q\n", recvLineCount, line)
-							if cfg.Copy {
-								fmt.Fprintln(cfg.Output, line)
-							}
-						}
-					}
-					continue
-				}
-
-				var toWrite []byte
-				var readErr error
-
-				if cfg.LineBuffer {
-					toWrite, readErr = br.ReadBytes('\n')
-				} else {
-					n, err := br.Read(buf)
-					if n > 0 {
-						toWrite = buf[:n]
-					}
-					readErr = err
-				}
-
-				if len(toWrite) > 0 {
-					for len(toWrite) > 0 {
-						for {
-							select {
-							case p := <-pauseCh:
-								paused = p
-								continue
-							case line, ok := <-lineCh:
-								if ok {
-									recvLineCount++
-									fmt.Printf("> [%d] %q\n", recvLineCount, line)
-									if cfg.Copy {
-										fmt.Fprintln(cfg.Output, line)
-									}
-								}
-								continue
-							default:
-							}
-							break
-						}
-
-						if paused {
-							select {
-							case p := <-pauseCh:
-								paused = p
-							case err := <-errCh:
-								sendErr = err
-								break SendLoop
-							case line, ok := <-lineCh:
-								if ok {
-									recvLineCount++
-									fmt.Printf("> [%d] %q\n", recvLineCount, line)
-									if cfg.Copy {
-										fmt.Fprintln(cfg.Output, line)
-									}
-								}
-							}
-							continue
-						}
-
-						chunkSize := 64
-						if len(toWrite) < chunkSize {
-							chunkSize = len(toWrite)
-						}
-
-						if _, err := port.Write(toWrite[:chunkSize]); err != nil {
-							sendErr = fmt.Errorf("failed to write to serial port: %w", err)
-							break SendLoop
-						}
-
-						if cfg.Log {
-							sentLineCount++
-							fmt.Fprintf(os.Stderr, "sent [%d]: %q\n", sentLineCount, string(toWrite[:chunkSize]))
-						}
-
-						toWrite = toWrite[chunkSize:]
-					}
-
-					if cfg.LineBuffer {
-						paused = true
-					}
-				}
-
-				if readErr == io.EOF {
-					break
-				}
-				if readErr != nil {
-					sendErr = fmt.Errorf("failed to read file: %w", readErr)
-					break
-				}
-			}
-
-			if sendErr != nil {
-				return sendErr
-			}
-			fmt.Printf("file sent\n")
-
 			if cfg.Linger {
 				fmt.Println("lingering...")
 				prompt = true
