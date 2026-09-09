@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# The library and the binary build from another module.
+build_test(
+    name = "builds",
+    targets = [
+        "@futility//cmd/serial_upload",
+        "@futility//seriallib",
+    ],
+)
+
+# The binary runs: its usage text names the flags it takes.
+sh_test(
+    name = "serial_upload_runs",
+    size = "small",
+    srcs = ["serial_upload_runs.sh"],
+    args = ["$(rootpath @futility//cmd/serial_upload)"],
+    data = ["@futility//cmd/serial_upload"],
+)
