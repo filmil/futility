@@ -1,6 +1,22 @@
 # SPDX-License-Identifier: Apache-2.0
-
-# The workflow can be run manually, otherwise it runs once a week.
+#
+# When run:
+# * asks whether anything landed since the last release, and stops if not
+# * tags a new release from the top of main
+# * builds the source archive, attests its provenance, and creates the release
+# * builds the serial_upload binaries for three architectures and adds them
+#   to the release
+# * publishes the release to filmil/bazel-registry, and then to the Bazel
+#   Central Registry
+#
+# The workflow can be run manually, otherwise it runs once a month.
+#
+# The release goes through bazel-contrib's release_ruleset.yaml, and the BCR
+# publish through bazel-contrib's publish-to-bcr, because the Bazel Central
+# Registry verifies attestations with slsa-verifier against those two
+# workflows' builder ids and no other. An attestation from a home-grown step
+# is valid and rejected. The binaries are not attested; only the source
+# archive is what a registry consumes.
 name: Tag and Release
 
 env:
@@ -11,20 +27,29 @@ on:
   schedule:
     - cron: '0 0 14 * *'
   workflow_dispatch:
+    inputs:
+      force_release:
+        description: >-
+          Release even when no commit asks for a version bump. Use this when a
+          change landed with a commit message that conventional-commit parsing
+          does not recognise, so the tree is ahead of the last tag but nothing
+          triggers a bump.
+        type: boolean
+        default: false
 
 jobs:
   # The scheduled run used to bump a version whether or not anything had
   # landed, so the same tree was released again and again (see the tags that
-  # share one commit). This job asks the only question that matters -- did
-  # anything get committed since the last release? -- and every job below
-  # hangs off the answer.
+  # share one commit). This job asks the only question that matters: did
+  # anything get committed since the last release? Every job below hangs off
+  # the answer.
   check:
     runs-on: ubuntu-latest
     outputs:
       changed: ${{ steps.changes.outputs.changed }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Full history and tags: `git describe` needs both, and the default
           # shallow checkout has neither.
@@ -33,6 +58,11 @@ jobs:
         id: changes
         run: |
           set -o errexit -o nounset -o pipefail
+          if [ "${{ inputs.force_release }}" = "true" ]; then
+            echo "Forced; releasing."
+            echo "changed=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
           latest="$(git describe --tags --abbrev=0 2>/dev/null || true)"
           if [ -z "${latest}" ]; then
             echo "No tag yet; releasing."
@@ -47,116 +77,119 @@ jobs:
             echo "changed=true" >> "${GITHUB_OUTPUT}"
           fi
 
+  # Computes the version from the commits since the last tag and pushes the
+  # tag. release_ruleset.yaml checks out the tag it is given, so the tag has
+  # to exist before it runs. The tests run there, in the release job.
   tag:
     needs: check
     if: ${{ needs.check.outputs.changed == 'true' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       tag_name: ${{ steps.tag_version.outputs.new_tag }}
     steps:
-      - name: Setup bazel
-        uses: bazel-contrib/setup-bazel@0.15.0
-        with:
-          bazelisk-cache: true
-          disk-cache: ${{ github.workflow }}
-          repository-cache: true
       - name: Checkout
-        uses: actions/checkout@v3
-      - name: Cache
-        uses: actions/cache@v4
+        uses: actions/checkout@v7
         with:
-          path: "~/.cache/bazel"
-          key: ${{ runner.os }}-bazel-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-bazel-
-      - name: "Test"
-        run: "bazel test --test_output=errors //..."
+          # The tag action reads the commits since the last tag; a shallow
+          # checkout has neither, and the action then finds nothing to release.
+          fetch-depth: 0
       - name: Bump version and push tag
         id: tag_version
         uses: mathieudutour/github-tag-action@v6.2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           release_branches: main
-      - name: Create a GitHub release
-        uses: ncipollo/release-action@v1
-        with:
-          tag: ${{ steps.tag_version.outputs.new_tag }}
-          generateReleaseNotes: true
-      - name: Get release tag
-        id: get_version
-        run: echo "VERSION=${{ steps.tag_version.outputs.new_tag }}" >> $GITHUB_ENV
-      - name: Get repo name
-        id: get_repo_name
-        run: echo "REPO_NAME=$(echo '${{ github.repository }}' | awk -F '/' '{print $2}')" >> $GITHUB_ENV
-      - name: "Publish source archive"
-        uses: thedoctor0/zip-release@0.7.5
-        with:
-          type: 'zip'
-          filename: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"
-          exclusions: '*.git* /*node_modules/* .editorconfig /bazel-*'
-      - name: "Upload source archive"
-        uses: ncipollo/release-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag: ${{ steps.tag_version.outputs.new_tag }}
-          allowUpdates: true
-          artifacts: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"
+          # Normally `false`, so the action emits an empty `new_tag` when no
+          # commit asks for a release and the guards below skip everything.
+          # The Run workflow button can override that with `force_release`,
+          # which bumps the patch version regardless. That is the escape hatch
+          # for a commit whose message conventional-commit parsing does not
+          # recognise: the code is on main, but nothing asks for a version.
+          default_bump: ${{ inputs.force_release && 'patch' || 'false' }}
 
+  # Runs `bazel test //...` at the tag, has .github/workflows/release_prep.sh
+  # build the source archive and the release notes, attests the archive's
+  # provenance, and creates the GitHub release with the archive and its
+  # attestation as assets.
   release:
     needs: tag
     if: ${{ needs.tag.outputs.tag_name != '' }}
+    permissions:
+      contents: write      # upload release files
+      id-token: write      # attest provenance
+      attestations: write  # attest provenance
+    uses: bazel-contrib/.github/.github/workflows/release_ruleset.yaml@v7.7.0
+    with:
+      tag_name: ${{ needs.tag.outputs.tag_name }}
+      release_files: futility-${{ needs.tag.outputs.tag_name }}.zip
+      # The reusable workflow's default is a prerelease.
+      prerelease: false
+
+  # The serial_upload binaries, one archive per architecture, added to the
+  # release the job above created. The release exists by now, so the upload
+  # updates it and leaves its name, notes and prerelease flag alone.
+  binaries:
+    needs: [tag, release]
+    if: ${{ needs.tag.outputs.tag_name != '' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     strategy:
       matrix:
         arch: ["386", "amd64", "arm64"]
         os: ["linux"]
     steps:
-      - name: Setup bazel
-        uses: bazel-contrib/setup-bazel@0.15.0
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.tag.outputs.tag_name }}
+      - name: Setup Bazel
+        uses: bazel-contrib/setup-bazel@0.19.0
         with:
           bazelisk-cache: true
-          disk-cache: ${{ github.workflow }}
+          disk-cache: ${{ github.workflow }}-${{ matrix.arch }}
           repository-cache: true
-      - name: Checkout
-        uses: actions/checkout@v2
-      - name: Cache
-        uses: actions/cache@v4
-        with:
-          path: "~/.cache/bazel"
-          key: ${{ runner.os }}-${{ matrix.arch }}-bazel-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.arch }}-bazel-
-      - name: "Test"
-        run: "bazel test --test_output=errors //..."
       - name: "Build binaries for ${{ matrix.os }}_${{ matrix.arch }}"
         run: |
           bazel build \
-            --platforms=@rules_go//go/toolchain:${{ matrix.os }}_${{ matrix.arch}} \
+            --platforms=@rules_go//go/toolchain:${{ matrix.os }}_${{ matrix.arch }} \
             --${ZIP_PACKAGE}:name_part_from_command_line=${{ matrix.os }}-${{ matrix.arch }} \
             ${ZIP_PACKAGE}:zip
-      - name: Find version tag
-        id: tag_version
-        uses: mathieudutour/github-tag-action@v6.2
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          release_branches: main
-          dry_run: true
-      - name: "Publish ${{ matrix.os }}_${{ matrix.arch }}"
+      - name: "Upload ${{ matrix.os }}_${{ matrix.arch }} to the release"
         uses: ncipollo/release-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          tag: ${{ needs.tag.outputs.tag_name }}
           allowUpdates: true
+          omitNameDuringUpdate: true
+          omitBodyDuringUpdate: true
+          omitPrereleaseDuringUpdate: true
           artifacts: "${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}.zip"
-          tag: ${{ steps.tag_version.outputs.previous_tag }}
 
-  # This workflow waits for binary artifacts to be published.
+  # The registries see a release in a fixed order: filmil/bazel-registry
+  # first, the Bazel Central Registry second. Only the BCR publish attests
+  # (see publish-bcr.yml for why), so the order also keeps a second attesting
+  # publish from ever racing the first over the same release assets.
+  #
+  # `secrets: inherit`: a local reusable workflow gets an empty
+  # BCR_PUBLISH_TOKEN from an explicit `secrets:` block when it reads the
+  # secret without declaring it, and publish-to-bcr fails on an empty required
+  # secret before any job starts.
   publish:
-    needs: tag
+    needs: [tag, binaries]
     if: ${{ needs.tag.outputs.tag_name != '' }}
     uses: ./.github/workflows/publish.yml
     with:
       tag_name: ${{ needs.tag.outputs.tag_name }}
-    secrets:
-      BCR_PUBLISH_TOKEN: ${{ secrets.BCR_PUBLISH_TOKEN }}
+    secrets: inherit
+
+  publish-bcr:
+    needs: [tag, publish]
+    if: ${{ needs.tag.outputs.tag_name != '' }}
+    uses: ./.github/workflows/publish-bcr.yml
+    with:
+      tag_name: ${{ needs.tag.outputs.tag_name }}
+    secrets: inherit

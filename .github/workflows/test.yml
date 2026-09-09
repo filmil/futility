@@ -16,15 +16,21 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Setup bazel
-        uses: bazel-contrib/setup-bazel@0.15.0
+      - name: Checkout
+        uses: actions/checkout@v7
+      # Checkout first: the bazelisk cache is keyed on .bazelversion.
+      - name: Setup Bazel
+        uses: bazel-contrib/setup-bazel@0.19.0
         with:
           bazelisk-cache: true
           disk-cache: ${{ github.workflow }}
           repository-cache: true
-      - name: Checkout
-        uses: actions/checkout@v3
       - name: Build
-        run: "bazel build //..."
+        run: bazel build //...
       - name: Test
-        run: "bazel test //..."
+        run: bazel test //...
+      # What a consumer of the module gets, and what the Bazel Central
+      # Registry's presubmit runs: integration/ depends on futility the way a
+      # registry user would.
+      - name: Test the integration module
+        run: cd integration && bazel test //...

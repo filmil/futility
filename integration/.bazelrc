@@ -1,13 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
-# Add project-wide settings below.
-#
 # The custom registry first: Bazel takes the first registry that has a
 # module, so this order lets filmil/bazel-registry override a module the
-# Bazel Central Registry also has. `common`, not `build`, so that
-# `bazel mod` and `bazel query` see the same registries.
+# Bazel Central Registry also has.
 common --registry=https://raw.githubusercontent.com/filmil/bazel-registry/main
 common --registry=https://bcr.bazel.build
 
-# Add your local user settings to file `user.bazelrc`
 try-import %workspace%/user.bazelrc

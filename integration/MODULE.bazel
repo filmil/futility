@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# A consumer of futility, the way a registry user is one. The tests here run
+# in CI, and the Bazel Central Registry's presubmit runs them against the
+# published entry (.bcr/presubmit.yml names this directory).
+module(
+    name = "futility_integration",
+    version = "0.0.0",
+)
+
+bazel_dep(name = "futility", version = "0.0.0")
+local_path_override(
+    module_name = "futility",
+    path = "..",
+)
+
+bazel_dep(name = "bazel_skylib", version = "1.9.2")
+bazel_dep(name = "rules_shell", version = "0.8.0")
