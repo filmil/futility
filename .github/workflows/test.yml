@@ -29,8 +29,29 @@ jobs:
         run: bazel build //...
       - name: Test
         run: bazel test //...
-      # What a consumer of the module gets, and what the Bazel Central
-      # Registry's presubmit runs: integration/ depends on futility the way a
-      # registry user would.
+
+  # What a consumer of the module gets, and what the Bazel Central Registry's
+  # presubmit runs: integration/ depends on futility the way a registry user
+  # would. The matrix mirrors the one in .bcr/presubmit.yml, as far as GitHub
+  # runners allow: macos-15-intel is the x86_64 Mac, macos-latest the arm64 one.
+  integration:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, macos-15-intel, macos-latest]
+        bazel: [8.x, 9.x]
+    runs-on: ${{ matrix.os }}
+    env:
+      USE_BAZEL_VERSION: ${{ matrix.bazel }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Bazel
+        uses: bazel-contrib/setup-bazel@0.19.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}-${{ matrix.os }}-${{ matrix.bazel }}
+          repository-cache: true
+      # The same command BCR presubmit issues, with nothing in front of it.
       - name: Test the integration module
-        run: cd integration && bazel test //...
+        run: cd integration && bazel test --test_output=errors //...
