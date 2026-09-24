@@ -17,11 +17,16 @@ ARCHIVE="futility-${TAG}.zip"
 
 # The exclusions thedoctor0/zip-release applied before this script existed,
 # plus the two files this workflow itself leaves in the tree: release_notes.txt,
-# which the shell creates before this script runs, and the archive. `bazel-*`
-# matters: zip follows symlinks and would store the whole output tree, and the
-# reusable workflow runs `bazel test //...` before this script.
-zip --quiet --recurse-paths "${ARCHIVE}" . \
-  -x '*.git*' '/*node_modules/*' '.editorconfig' 'bazel-*' 'integration/bazel-*' \
+# which the shell creates before this script runs, and the archive.
+#
+# The reusable workflow runs `bazel test //...` before this script, so the
+# tree has bazel's convenience symlinks. `--symlinks` stores a symlink as a
+# symlink: without it zip follows each one into the output base, and it walks
+# the tree before it applies `-x`, so an exclusion does not stop the walk.
+# `*bazel-*` and not `bazel-*`, because the latter only matches the top level
+# and integration/ grows its own bazel-bin as soon as anything is built there.
+zip --quiet --symlinks --recurse-paths "${ARCHIVE}" . \
+  -x '*.git*' '/*node_modules/*' '.editorconfig' '*bazel-*' \
      'release_notes.txt' "${ARCHIVE}"
 
 cat <<NOTES
