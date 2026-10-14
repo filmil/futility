@@ -6,17 +6,13 @@
 # * builds the source archive, attests its provenance, and creates the release
 # * builds the serial_upload binaries for three architectures and adds them
 #   to the release
-# * publishes the release to filmil/bazel-registry, and then to the Bazel
-#   Central Registry
+# * publishes the release to filmil/bazel-registry
 #
 # The workflow can be run manually, otherwise it runs once a month.
 #
-# The release goes through bazel-contrib's release_ruleset.yaml, and the BCR
-# publish through bazel-contrib's publish-to-bcr, because the Bazel Central
-# Registry verifies attestations with slsa-verifier against those two
-# workflows' builder ids and no other. An attestation from a home-grown step
-# is valid and rejected. The binaries are not attested; only the source
-# archive is what a registry consumes.
+# The release goes through bazel-contrib's release_ruleset.yaml, and the
+# publish through bazel-contrib's publish-to-bcr. The binaries are not
+# attested; only the source archive is what a registry consumes.
 name: Tag and Release
 
 env:
@@ -169,10 +165,7 @@ jobs:
           omitPrereleaseDuringUpdate: true
           artifacts: "${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}.zip"
 
-  # The registries see a release in a fixed order: filmil/bazel-registry
-  # first, the Bazel Central Registry second. Only the BCR publish attests
-  # (see publish-bcr.yml for why), so the order also keeps a second attesting
-  # publish from ever racing the first over the same release assets.
+  # Publishes the release to filmil/bazel-registry.
   #
   # `secrets: inherit`: a local reusable workflow gets an empty
   # BCR_PUBLISH_TOKEN from an explicit `secrets:` block when it reads the
@@ -182,14 +175,6 @@ jobs:
     needs: [tag, binaries]
     if: ${{ needs.tag.outputs.tag_name != '' }}
     uses: ./.github/workflows/publish.yml
-    with:
-      tag_name: ${{ needs.tag.outputs.tag_name }}
-    secrets: inherit
-
-  publish-bcr:
-    needs: [tag, publish]
-    if: ${{ needs.tag.outputs.tag_name != '' }}
-    uses: ./.github/workflows/publish-bcr.yml
     with:
       tag_name: ${{ needs.tag.outputs.tag_name }}
     secrets: inherit
