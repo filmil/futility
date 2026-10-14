@@ -3,7 +3,6 @@
 [![Test](https://github.com/filmil/futility/actions/workflows/test.yml/badge.svg)](https://github.com/filmil/futility/actions/workflows/test.yml)
 [![Tag and Release](https://github.com/filmil/futility/actions/workflows/tag-and-release.yml/badge.svg)](https://github.com/filmil/futility/actions/workflows/tag-and-release.yml)
 [![Publish to my Bazel registry](https://github.com/filmil/futility/actions/workflows/publish.yml/badge.svg)](https://github.com/filmil/futility/actions/workflows/publish.yml)
-[![Publish on Bazel Central Registry](https://github.com/filmil/futility/actions/workflows/publish-bcr.yml/badge.svg)](https://github.com/filmil/futility/actions/workflows/publish-bcr.yml)
 
 This repository contains various utilities and tools. Below is a summary of the main components:
 
@@ -31,16 +30,11 @@ A release then lists the archive, `futility-<tag>.zip.intoto.jsonl`, and the
 builds at the tag and adds.
 
 The same run publishes the release to [my Bazel registry][reg] as a pull
-request, through `.github/workflows/publish.yml`, and then opens a pull
-request against the Bazel Central Registry through
-`.github/workflows/publish-bcr.yml`, with attested `MODULE.bazel` and
-`source.json`, which is what the BCR presubmit verifies with `slsa-verifier`.
-Only that publish attests: two attesting publishes would overwrite each
-other's attestation files on the release.
-The presubmit runs the tests in `integration/`, a module that depends on
-futility the way a registry user does; CI runs them on every change.
+request, through `.github/workflows/publish.yml`.
+CI runs the tests in `integration/`, a module that depends on futility the
+way a registry user does, on every change.
 
-To check a release the way the BCR does, with the archive downloaded from
+To check a release's provenance attestation with the archive downloaded from
 the release:
 
 ```
